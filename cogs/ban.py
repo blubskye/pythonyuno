@@ -1,9 +1,12 @@
 import discord
 from discord.ext import commands
 import random
+import logging
 from PIL import Image, ImageDraw, ImageFont
 from io import BytesIO
 import os
+
+logger = logging.getLogger(__name__)
 
 BAN_IMAGES_FOLDER = "ban_images"
 os.makedirs(BAN_IMAGES_FOLDER, exist_ok=True)
@@ -44,18 +47,12 @@ class Ban(commands.Cog):
     @commands.has_permissions(ban_members=True)
     @commands.bot_has_permissions(ban_members=True)
     async def ban(self, ctx, target: str, *, reason: str = "No reason provided"):
-        if not ctx.author.guild_permissions.ban_members:
-            try:
-                await ctx.author.ban(reason="[Anti-Abuse] Unauthorized ban attempt", delete_message_seconds=86400)
-                return await ctx.send(f"{ctx.author.mention} tried to ban without permission.\nThey're gone. ♡")
-            except:
-                return await ctx.send("Nice try.")
-
+        """Ban a member or user by ID with custom ban image"""
         member = None
         try:
             member = await commands.MemberConverter().convert(ctx, target)
-        except:
-            pass
+        except commands.MemberNotFound:
+            pass  # Will try ID conversion below
 
         if not member:
             try:
@@ -63,7 +60,8 @@ class Ban(commands.Cog):
                 user = await self.bot.fetch_user(user_id)
                 await ctx.guild.ban(discord.Object(id=user.id), reason=f"[ID Ban] {reason} — by {ctx.author}")
                 return await self.send_ban_image(ctx, user, reason, ctx.author)
-            except:
+            except (ValueError, discord.NotFound, discord.HTTPException) as e:
+                logger.error(f"Failed to ban by ID: {e}")
                 return await ctx.send("Invalid user/ID.")
 
         if member.top_role >= ctx.author.top_role and ctx.author != ctx.guild.owner:
@@ -71,8 +69,11 @@ class Ban(commands.Cog):
 
         try:
             await member.ban(reason=f"{reason} — by {ctx.author}", delete_message_seconds=604800)
-        except:
-            return await ctx.send("Failed to ban.")
+        except discord.Forbidden:
+            return await ctx.send("I don't have permission to ban this user.")
+        except discord.HTTPException as e:
+            logger.error(f"Failed to ban {member}: {e}")
+            return await ctx.send("Failed to ban - Discord API error.")
         await self.send_ban_image(ctx, member, reason, ctx.author)
 
     @commands.command(name="unban")
@@ -84,27 +85,27 @@ class Ban(commands.Cog):
         if user.isdigit():
             try:
                 target_user = await self.bot.fetch_user(int(user))
-            except:
-                pass
+            except discord.NotFound:
+                pass  # Will try other methods below
 
         elif "#" in user:
             try:
                 name, discrim = user.split("#")
-                bans = await ctx.guild.bans().flatten()
+                bans = [entry async for entry in ctx.guild.bans()]
                 for ban_entry in bans:
                     if ban_entry.user.name == name and ban_entry.user.discriminator == discrim:
                         target_user = ban_entry.user
                         break
-            except:
-                pass
+            except Exception as e:
+                logger.error(f"Error looking up banned user: {e}")
 
         elif user.startswith("<@"):
             user_id = user.strip("<@!>")
             if user_id.isdigit():
                 try:
                     target_user = await self.bot.fetch_user(int(user_id))
-                except:
-                    pass
+                except discord.NotFound:
+                    pass  # Will handle below
 
         if not target_user:
             return await ctx.send("User not found or not banned.")
@@ -113,8 +114,11 @@ class Ban(commands.Cog):
             await ctx.guild.unban(target_user, reason=f"{reason} — by {ctx.author}")
         except discord.NotFound:
             return await ctx.send("User is not banned.")
-        except:
-            return await ctx.send("Failed to unban.")
+        except discord.Forbidden:
+            return await ctx.send("I don't have permission to unban users.")
+        except discord.HTTPException as e:
+            logger.error(f"Failed to unban {target_user}: {e}")
+            return await ctx.send("Failed to unban - Discord API error.")
 
         embed = discord.Embed(title="User Unbanned", color=0x00ff00)
         embed.description = f"**{target_user}** (`{target_user.id}`) is free again."

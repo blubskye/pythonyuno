@@ -1,8 +1,12 @@
 import discord
 from discord.ext import commands
 import sqlite3
+import logging
+import config
 
-DB_PATH = "Leveling/main.db"
+logger = logging.getLogger(__name__)
+
+DB_PATH = config.DB_PATH
 
 class Welcome(commands.Cog):
     def __init__(self, bot):
@@ -60,20 +64,23 @@ class Welcome(commands.Cog):
         if chan_on and channel:
             try:
                 await channel.send(embed=embed)
-            except:
-                pass
+            except discord.Forbidden:
+                logger.warning(f"Cannot send welcome to {channel.id} - missing permissions")
+            except discord.HTTPException as e:
+                logger.error(f"Failed to send welcome message: {e}")
 
         # === SEND TO DM ===
         if dm_on:
             try:
                 await member.send(embed=embed)
             except discord.Forbidden:
+                logger.debug(f"Cannot DM {member.id} - DMs are closed")
                 # Optional: notify in channel that DM failed
                 if chan_on and channel:
                     try:
                         await channel.send(f"{member.mention} I tried to DM you a welcome, but your privacy settings block it!")
-                    except:
-                        pass
+                    except discord.HTTPException as e:
+                        logger.error(f"Failed to notify about DM failure: {e}")
 
     # === SET WELCOME CHANNEL ===
     @commands.command(name="setwelcome")
@@ -181,4 +188,4 @@ class Welcome(commands.Cog):
 
 async def setup(bot):
     await bot.add_cog(Welcome(bot))
-    print("Advanced welcome system loaded — DM + Channel + Both ♡")
+    logger.info("Advanced welcome system loaded — DM + Channel + Both ♡")

@@ -2,7 +2,9 @@ import discord
 from discord.ext import commands
 import traceback
 import textwrap
-from utils.checks import is_admin  # optional, or use is_owner
+import logging
+
+logger = logging.getLogger(__name__)
 
 class ErrorHandler(commands.Cog):
     def __init__(self, bot):
@@ -61,8 +63,8 @@ class ErrorHandler(commands.Cog):
 
         try:
             await channel.send(embed=embed)
-        except:
-            pass  # Silent fail if log channel is invalid
+        except discord.HTTPException as e:
+            logger.error(f"Failed to send traceback to log channel: {e}")
 
     @commands.Cog.listener()
     async def on_command_error(self, ctx, error):
@@ -87,8 +89,8 @@ class ErrorHandler(commands.Cog):
                 await interaction.followup.send("An error occurred while processing the command.", ephemeral=True)
             else:
                 await interaction.response.send_message("An error occurred.", ephemeral=True)
-        except:
-            pass
+        except discord.HTTPException as e:
+            logger.error(f"Failed to send error response to user: {e}")
 
 async def setup(bot):
     await bot.add_cog(ErrorHandler(bot))

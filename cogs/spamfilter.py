@@ -3,10 +3,14 @@ from discord.ext import commands
 import re
 from collections import defaultdict, deque
 import asyncio
+import logging
+import config
+
+logger = logging.getLogger(__name__)
 
 # === CONFIGURABLE RULES ===
-INVITE_REGEX = re.compile(r"(discord\.(gg|io|me|li)|discordapp\.com/invite)/[a-zA-Z0-9]+")
-LINK_REGEX = re.compile(r"(https?://|www\.)[a-zA-Z0-9\-]+\.[a-zA-Z0-9\-\._~:\/\?#\[\]@!\$&'\(\)\*\+,;=%]+")
+INVITE_REGEX = re.compile(config.INVITE_PATTERN)
+LINK_REGEX = re.compile(config.LINK_PATTERN)
 
 class SpamFilter(commands.Cog):
     def __init__(self, bot):
@@ -29,7 +33,8 @@ class SpamFilter(commands.Cog):
         if message.author.id not in message.guild.members:
             try:
                 await message.guild.fetch_member(message.author.id)
-            except:
+            except discord.NotFound:
+                logger.warning(f"Member {message.author.id} not found in guild {message.guild.id}")
                 return
 
         # Skip mods/admins
@@ -62,8 +67,8 @@ class SpamFilter(commands.Cog):
                             "Only links and images are permitted to reduce clutter.\n"
                             "Please discuss in #main-chat or #media instead."
                         )
-                    except:
-                        pass
+                    except discord.Forbidden:
+                        logger.debug(f"Could not DM {message.author} - DMs are closed")
                     return
 
         # === RULE 3: @everyone / @here → instant ban ===
@@ -86,14 +91,14 @@ class SpamFilter(commands.Cog):
                         f"{message.author.mention} Links are not allowed in main chat. This is your **only warning**.\n"
                         "Next offense = ban."
                     )
-                    await asyncio.sleep(15)
+                    await asyncio.sleep(config.WARNING_TIMEOUT)
                     await warning.delete()
                     return
 
             # === RULE 5: 4+ consecutive messages in #main → warning, then ban ===
             recent = self.recent_messages[message.channel.id]
-            if len(recent) >= 4:
-                authors = [m.author.id for m in list(recent)[-4:]]
+            if len(recent) >= config.SPAM_MESSAGE_LIMIT:
+                authors = [m.author.id for m in list(recent)[-config.SPAM_MESSAGE_LIMIT:]]
                 if all(a == message.author.id for a in authors):
                     if message.author.id in self.spam_streak:
                         self.spam_streak.pop(message.author.id, None)
@@ -101,10 +106,10 @@ class SpamFilter(commands.Cog):
                     else:
                         self.spam_streak[message.author.id] = True
                         warning = await message.channel.send(
-                            f"{message.author.mention} Please keep messages under 4 in a row in main chat.\n"
+                            f"{message.author.mention} Please keep messages under {config.SPAM_MESSAGE_LIMIT} in a row in main chat.\n"
                             "This is your **only warning**. Next burst = ban."
                         )
-                        await asyncio.sleep(15)
+                        await asyncio.sleep(config.WARNING_TIMEOUT)
                         await warning.delete()
 
         await self.bot.process_commands(message)
@@ -116,17 +121,17 @@ class SpamFilter(commands.Cog):
                 f"Reason: `{reason}`\n"
                 "This action was automatic. Contact staff if you believe this was a mistake."
             )
-        except:
-            pass
+        except discord.Forbidden:
+            logger.debug(f"Could not DM {message.author} before ban - DMs are closed")
 
         try:
-            await message.author.ban(reason=f"[Auto] {reason}", delete_message_seconds=86400)
+            await message.author.ban(reason=f"[Auto] {reason}", delete_message_seconds=config.BAN_DELETE_MESSAGES_SECONDS)
             await message.channel.send(f"{message.author.mention} has been auto-banned: {reason}")
         except discord.Forbidden:
             await message.channel.send("I don't have permission to ban this user.")
         except Exception as e:
-            print(f"Failed to ban {message.author}: {e}")
+            logger.error(f"Failed to ban {message.author}: {e}", exc_info=True)
 
 async def setup(bot):
     await bot.add_cog(SpamFilter(bot))
-    print("Advanced spam filter loaded — Yuno is watching.")
+    logger.info("Advanced spam filter loaded — Yuno is watching.")

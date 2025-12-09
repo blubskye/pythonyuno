@@ -5,8 +5,13 @@ import subprocess
 import textwrap
 import os
 import sys
+import traceback
+import logging
 from contextlib import redirect_stdout
 import io
+import config
+
+logger = logging.getLogger(__name__)
 
 class Terminal(commands.Cog):
     def __init__(self, bot):
@@ -83,7 +88,7 @@ class Terminal(commands.Cog):
 
         while True:
             try:
-                msg = await self.bot.wait_for("message", check=check, timeout=300)
+                msg = await self.bot.wait_for("message", check=check, timeout=config.TERMINAL_SESSION_TIMEOUT)
             except asyncio.TimeoutError:
                 del self.sessions[ctx.author.id]
                 return await ctx.send("Terminal timed out.")
@@ -108,4 +113,4 @@ class Terminal(commands.Cog):
 
 async def setup(bot):
     await bot.add_cog(Terminal(bot))
-    print("Interactive terminal loaded — full system access granted.")
+    logger.info("Interactive terminal loaded — full system access granted.")
